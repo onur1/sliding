@@ -55,7 +55,14 @@ LOOP:
 			ptr = ptr + 1
 			ptr = list.Put(ptr, head)
 		case ch := <-peek:
-			ch <- list.Get(ptr).(int) - (list.Get(ptr - l).(int))
+			a, b := 0, 0
+			if list.Get(ptr) != nil {
+				a = list.Get(ptr).(int)
+			}
+			if list.Get(ptr-l) != nil {
+				b = list.Get(ptr - l).(int)
+			}
+			ch <- a - b
 		case <-exit:
 			break LOOP
 		}
