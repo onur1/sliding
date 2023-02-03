@@ -93,6 +93,8 @@ LOOP:
 
 	ticker.Stop()
 
+	r, ticker = nil, nil
+
 	close(cnt)
 	close(peek)
 }
