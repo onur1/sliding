@@ -1,3 +1,4 @@
 # sliding
 
-sliding window counter.
+high-precision sliding window counter.
+
