@@ -7,94 +7,100 @@ import (
 	"github.com/onur1/ring"
 )
 
-// A Counter is a sliding-window based counter which is used for
-// counting how many times something have occured within the last time frame.
+// A Counter is a sliding window based counter and used for counting
+// how frequently events are happening.
 type Counter struct {
 	count chan struct{}
 	exit  chan struct{}
-	peek  chan chan int
+	peek  chan chan int64
+	dur   time.Duration
 }
 
-// NewCounter returns a new Counter with the given frame duration.
+// NewCounter returns a new Counter with the given time interval.
 func NewCounter(d time.Duration) *Counter {
 	exit := make(chan struct{}, 1)
 	count := make(chan struct{})
-	peek := make(chan chan int)
+	peek := make(chan chan int64)
 
-	go loop(d, count, exit, peek)
+	millis := int(d.Milliseconds())
 
-	return &Counter{
+	// ringsize is always a power of 2 and less than 64
+	r := ring.NewRing[int64](int(math.Ceil(math.Log(float64(millis))/math.Log(2))) + 1)
+
+	len := r.Size() - 1
+
+	// time window value needs to be rounded to the nearest millisecond
+	// which is dividable by ringsize - 1
+	diff := (millis % len)
+	if diff <= len/2 {
+		millis = millis - diff
+	} else {
+		millis = millis + (len - diff)
+	}
+
+	c := &Counter{
 		count: count,
 		exit:  exit,
 		peek:  peek,
+		dur:   time.Duration(millis) * time.Millisecond,
 	}
+
+	go c.loop(r, time.Duration(millis/len)*time.Millisecond, len)
+
+	return c
 }
 
-// Close stops the counter.
-func (c *Counter) Close() {
+// Duration returns the calculated duration of time window.
+func (c *Counter) Duration() time.Duration {
+	return c.dur
+}
+
+// Stop stops the counter.
+func (c *Counter) Stop() {
 	close(c.exit)
 }
 
 // Peek returns the current count.
-func (c *Counter) Peek() int {
-	res := make(chan int, 1)
+func (c *Counter) Peek() int64 {
+	res := make(chan int64, 1)
 	c.peek <- res
 	return <-res
 }
 
-// Inc increments the counter by 1.
+// Inc increments a counter by 1.
 func (c *Counter) Inc() {
 	c.count <- struct{}{}
 }
 
-var (
-	log2        = math.Log(2)
-	minInterval = float64(time.Millisecond.Nanoseconds())
-)
-
-func loop(d time.Duration, cnt chan struct{}, exit chan struct{}, peek chan chan int) {
+func (c *Counter) loop(r *ring.Ring[int64], d time.Duration, len int) {
 	var (
-		ptr  uint = 0
-		head int  = 0
+		ptr  int   = 0
+		head int64 = 0
 	)
 
-	t := d.Nanoseconds()
-	l := uint(math.Ceil(math.Log(float64(t)) / log2))
-
-	r := ring.NewRing[int](l + 1)
-	ticker := time.NewTicker(
-		time.Duration(math.Max(float64(t/int64(l)), minInterval)) * time.Nanosecond,
-	)
-
-	var a, b int
+	ticker := time.NewTicker(d)
 
 LOOP:
 	for {
 		select {
-		case <-cnt:
+		case <-c.exit:
+			break LOOP
+		default:
+		}
+		select {
+		case <-c.count:
 			head = head + 1
 			r.Put(ptr, head)
 		case <-ticker.C:
 			ptr = ptr + 1
 			ptr = r.Put(ptr, head)
-		case ch := <-peek:
-			a, b = 0, 0
-			if r.Get(ptr) != 0 {
-				a = r.Get(ptr)
-			}
-			if r.Get(ptr-l) != 0 {
-				b = r.Get(ptr - l)
-			}
-			ch <- a - b
-		case <-exit:
-			break LOOP
+		case ch := <-c.peek:
+			ch <- r.Get(ptr) - r.Get(ptr-len)
 		}
 	}
 
 	ticker.Stop()
 
-	r, ticker = nil, nil
-
-	close(cnt)
-	close(peek)
+	close(c.count)
+	close(c.peek)
 }
