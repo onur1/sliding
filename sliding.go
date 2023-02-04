@@ -55,7 +55,7 @@ func (c *Counter) Duration() time.Duration {
 	return c.dur
 }
 
-// Stop stops the counter.
+// Stop stops a counter.
 func (c *Counter) Stop() {
 	close(c.exit)
 }
