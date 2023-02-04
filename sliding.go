@@ -12,7 +12,7 @@ import (
 type Counter struct {
 	count chan struct{}
 	exit  chan struct{}
-	peek  chan chan int64
+	peek  chan chan int
 	dur   time.Duration
 }
 
@@ -20,12 +20,12 @@ type Counter struct {
 func NewCounter(d time.Duration) *Counter {
 	exit := make(chan struct{}, 1)
 	count := make(chan struct{})
-	peek := make(chan chan int64)
+	peek := make(chan chan int)
 
 	millis := int(d.Milliseconds())
 
 	// ringsize is always a power of 2 and less than 64
-	r := ring.NewRing[int64](int(math.Ceil(math.Log(float64(millis))/math.Log(2))) + 1)
+	r := ring.NewRing[int](int(math.Ceil(math.Log(float64(millis))/math.Log(2))) + 1)
 
 	len := r.Size() - 1
 
@@ -61,8 +61,8 @@ func (c *Counter) Stop() {
 }
 
 // Peek returns the current count.
-func (c *Counter) Peek() int64 {
-	res := make(chan int64, 1)
+func (c *Counter) Peek() int {
+	res := make(chan int, 1)
 	c.peek <- res
 	return <-res
 }
@@ -72,10 +72,10 @@ func (c *Counter) Inc() {
 	c.count <- struct{}{}
 }
 
-func (c *Counter) loop(r *ring.Ring[int64], d time.Duration, len int) {
+func (c *Counter) loop(r *ring.Ring[int], d time.Duration, len int) {
 	var (
-		ptr  int   = 0
-		head int64 = 0
+		ptr  int = 0
+		head int = 0
 	)
 
 	ticker := time.NewTicker(d)
