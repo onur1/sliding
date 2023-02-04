@@ -30,7 +30,7 @@ func NewCounter(d time.Duration) *Counter {
 	len := r.Size() - 1
 
 	// time window value needs to be rounded to the nearest millisecond
-	// which is dividable by ringsize - 1
+	// which is divisible by ringsize - 1
 	diff := (millis % len)
 	if diff <= len/2 {
 		millis = millis - diff
