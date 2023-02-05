@@ -81,7 +81,6 @@ LOOP:
 
 	close(c.count)
 	close(c.peek)
-
 }
 
 type ticker interface {
