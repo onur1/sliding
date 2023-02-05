@@ -18,34 +18,18 @@ type Counter struct {
 
 // NewCounter returns a new Counter with the given time interval.
 func NewCounter(d time.Duration) *Counter {
-	exit := make(chan struct{}, 1)
-	count := make(chan struct{})
-	peek := make(chan chan int)
-
-	millis := int(d.Milliseconds())
-
-	// ringsize is always a power of 2 and less than 64
-	r := ring.NewRing[int](int(math.Ceil(math.Log(float64(millis))/math.Log(2))) + 1)
-
-	len := r.Size() - 1
-
-	// time window value needs to be rounded to the nearest millisecond
-	// which is divisible by ringsize - 1
-	diff := (millis % len)
-	if diff <= len/2 {
-		millis = millis - diff
-	} else {
-		millis = millis + (len - diff)
-	}
+	r, dur := newRing(d)
 
 	c := &Counter{
-		count: count,
-		exit:  exit,
-		peek:  peek,
-		dur:   time.Duration(millis) * time.Millisecond,
+		count: make(chan struct{}),
+		exit:  make(chan struct{}, 1),
+		peek:  make(chan chan int),
+		dur:   dur,
 	}
 
-	go c.loop(r, time.Duration(millis/len)*time.Millisecond, len)
+	framedur := time.Duration(dur.Milliseconds()/int64(r.Size()-1)) * time.Millisecond
+
+	go c.loop(r, newClockTicker(framedur))
 
 	return c
 }
@@ -72,26 +56,20 @@ func (c *Counter) Inc() {
 	c.count <- struct{}{}
 }
 
-func (c *Counter) loop(r *ring.Ring[int], d time.Duration, len int) {
-	var (
-		ptr  int = 0
-		head int = 0
-	)
-
-	ticker := time.NewTicker(d)
+func (c *Counter) loop(r *ring.Ring[int], ticker ticker) {
+	ptr, head := 0, 0
+	len := r.Size() - 1
+	C := ticker.getC()
 
 LOOP:
 	for {
 		select {
 		case <-c.exit:
 			break LOOP
-		default:
-		}
-		select {
 		case <-c.count:
 			head = head + 1
 			r.Put(ptr, head)
-		case <-ticker.C:
+		case <-C:
 			ptr = ptr + 1
 			ptr = r.Put(ptr, head)
 		case ch := <-c.peek:
@@ -99,8 +77,54 @@ LOOP:
 		}
 	}
 
-	ticker.Stop()
+	ticker.stop()
 
 	close(c.count)
 	close(c.peek)
+
+}
+
+type ticker interface {
+	getC() <-chan time.Time
+	stop()
+}
+
+func newRing(d time.Duration) (*ring.Ring[int], time.Duration) {
+	millis := int(d.Milliseconds())
+
+	// ringsize is always a power of 2 and less than 64
+	r := ring.NewRing[int](int(math.Ceil(math.Log(float64(millis))/math.Log(2))) + 1)
+
+	len := r.Size() - 1
+
+	// time window value needs to be rounded to the nearest millisecond
+	// which is divisible by ringsize - 1
+	diff := (millis % len)
+	if diff <= len/2 {
+		millis = millis - diff
+	} else {
+		millis = millis + (len - diff)
+	}
+
+	return r, time.Duration(millis) * time.Millisecond
+}
+
+type clockTicker struct {
+	ticker *time.Ticker
+}
+
+func newClockTicker(d time.Duration) *clockTicker {
+	ticker := time.NewTicker(d)
+	return &clockTicker{
+		ticker,
+	}
+}
+
+func (t *clockTicker) getC() <-chan time.Time {
+	return t.ticker.C
+}
+
+func (t *clockTicker) stop() {
+	t.ticker.Stop()
+	t.ticker = nil
 }
