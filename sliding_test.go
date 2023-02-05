@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Loop() {
-
-}
-
 func TestCounter(t *testing.T) {
 	c, r, ticker := newTestCounter(time.Millisecond * 80)
 
