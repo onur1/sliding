@@ -1,39 +1,62 @@
+
 # sliding
 
-A Counter is a sliding window based counter for counting how frequently events are happening within some time window.
+**sliding** is a Go library for counting occurrences within a moving time window, allowing efficient tracking of event frequency over a configurable time span. This is useful for scenarios where real-time tracking of event rates is needed, such as API rate limiting, analytics, or monitoring.
 
-Note that, this implementation uses [ring](https://github.com/onur1/ring) under the hood, the ring capacity will always be a power of 2. For better precision, the given duration value needs to be rounded to the nearest millisecond which is divisible by `ring capacity - 1`.
+## Features
 
-[See the full API documentation at pkg.go.dev](https://pkg.go.dev/github.com/onur1/sliding)
+- **Sliding Window Counter**: Counts events within a sliding window of time, providing real-time tracking.
+- **Efficient Ring Buffer**: Uses an optimized ring buffer for efficient memory use, with capacities optimized to powers of 2.
 
-## Example
+## Installation
 
-```golang
-c := sliding.NewCounter(time.Millisecond * 77)
+Install the library by running:
 
-fmt.Println(c.Peek()) // 0
-
-c.Inc()
-c.Inc()
-
-fmt.Println(c.Peek()) // 2
-
-time.Sleep(time.Millisecond * 55)
-
-c.Inc()
-
-fmt.Println(c.Peek()) // 3
-
-time.Sleep(time.Millisecond * 22)
-
-fmt.Println(c.Peek()) // 1
+```sh
+go get github.com/onur1/sliding
 ```
 
-Output:
+## Usage
 
+Here’s an example demonstrating the `sliding` counter:
+
+```go
+package main
+
+import (
+    "fmt"
+    "time"
+    "github.com/onur1/sliding"
+)
+
+func main() {
+    c := sliding.NewCounter(time.Millisecond * 77)
+
+    fmt.Println(c.Peek()) // Output: 0
+
+    c.Inc()
+    c.Inc()
+
+    fmt.Println(c.Peek()) // Output: 2
+
+    time.Sleep(time.Millisecond * 55)
+
+    c.Inc()
+
+    fmt.Println(c.Peek()) // Output: 3
+
+    time.Sleep(time.Millisecond * 22)
+
+    fmt.Println(c.Peek()) // Output: 1
+}
 ```
-0
-2
-3
-1
-```
+
+## API Reference
+
+- **`NewCounter(duration time.Duration) *Counter`**: Initializes a new sliding counter with the specified time window.
+- **`Inc()`**: Increments the event count by 1.
+- **`Peek() int`**: Returns the current count of events within the sliding window.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
