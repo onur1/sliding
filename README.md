@@ -1,5 +1,6 @@
-
 # sliding
+
+![sliding](./sliding-gopher.webp)
 
 **sliding** is a Go library for counting occurrences within a moving time window, allowing efficient tracking of event frequency over a configurable time span. This is useful for scenarios where real-time tracking of event rates is needed, such as API rate limiting, analytics, or monitoring.
 
@@ -17,8 +18,6 @@ go get github.com/onur1/sliding
 ```
 
 ## Usage
-
-Here’s an example demonstrating the `sliding` counter:
 
 ```go
 package main
