@@ -2,128 +2,109 @@ package sliding
 
 import (
 	"math"
+	"sync/atomic"
 	"time"
-
-	"github.com/onur1/ring"
 )
 
-// A Counter is a sliding window based counter and used for counting
-// how frequently events are happening.
+type slot struct {
+	timestamp int64  // The timestamp of the slot in slot units
+	count     uint64 // The count of events in this slot
+}
+
+// Counter is a lock-free sliding window counter implementation using atomic CAS operations.
 type Counter struct {
-	count chan struct{}
-	exit  chan struct{}
-	peek  chan chan int
-	dur   time.Duration
+	slots      []slot        // Ring buffer of slots
+	totalSlots int64         // Total number of slots (power of 2 for efficient indexing)
+	slotSize   time.Duration // Duration of each slot
+	windowSize time.Duration // Total duration of the sliding window
+	mask       int64         // Mask for efficient modulo operation
 }
 
-// NewCounter returns a new Counter with the given time interval.
-func NewCounter(d time.Duration) *Counter {
-	r, dur := newRing(d)
+// NewCounter initializes a new sliding window counter.
+//   - `windowSize` defines the total sliding window duration.
+//   - The number of slots is calculated automatically for optimal performance.
+func NewCounter(windowSize time.Duration) *Counter {
+	// Convert window size to milliseconds for calculation
+	ms := windowSize.Milliseconds()
 
-	c := &Counter{
-		count: make(chan struct{}),
-		exit:  make(chan struct{}, 1),
-		peek:  make(chan chan int),
-		dur:   dur,
+	// Calculate the initial number of slots based on the logarithm of the window size
+	slots := int(math.Ceil(math.Log(float64(ms))/math.Log(2))) + 1
+
+	// Adjust slots to the next power of 2
+	n := 1
+	for n < slots {
+		n <<= 1
 	}
+	slots = n
 
-	framedur := time.Duration(dur.Milliseconds()/int64(r.Size()-1)) * time.Millisecond
+	// Recalculate window size to be an exact multiple of the number of slots
+	slotSize := windowSize / time.Duration(slots)
+	windowSize = slotSize * time.Duration(slots)
 
-	go c.loop(r, newClockTicker(framedur))
+	// Prepare the ring buffer mask for efficient indexing
+	mask := int64(slots - 1)
 
-	return c
+	slotsArray := make([]slot, slots)
+	return &Counter{
+		slots:      slotsArray,
+		totalSlots: int64(slots),
+		slotSize:   slotSize,
+		windowSize: windowSize,
+		mask:       mask,
+	}
 }
 
-// Duration returns the calculated duration of time window.
-func (c *Counter) Duration() time.Duration {
-	return c.dur
-}
+// Increment increments the count in the current time slot.
+func (c *Counter) Increment() {
+	now := time.Now()
+	slotTime := now.UnixNano() / c.slotSize.Nanoseconds()
+	idx := slotTime & c.mask
 
-// Stop stops a counter.
-func (c *Counter) Stop() {
-	close(c.exit)
-}
-
-// Peek returns the current count.
-func (c *Counter) Peek() int {
-	res := make(chan int, 1)
-	c.peek <- res
-	return <-res
-}
-
-// Inc increments a counter by 1.
-func (c *Counter) Inc() {
-	c.count <- struct{}{}
-}
-
-func (c *Counter) loop(r *ring.Ring[int], ticker ticker) {
-	ptr, head := 0, 0
-	len := r.Size() - 1
-	C := ticker.getC()
-
-LOOP:
 	for {
-		select {
-		case <-c.exit:
-			break LOOP
-		case <-c.count:
-			head = head + 1
-			r.Put(ptr, head)
-		case <-C:
-			ptr = ptr + 1
-			ptr = r.Put(ptr, head)
-		case ch := <-c.peek:
-			ch <- r.Get(ptr) - r.Get(ptr-len)
+		slotPtr := &c.slots[idx]
+		slotTimestamp := atomic.LoadInt64(&slotPtr.timestamp)
+
+		if slotTimestamp == slotTime {
+			// Current slot; increment the count atomically
+			atomic.AddUint64(&slotPtr.count, 1)
+			return
+		} else if slotTimestamp < slotTime {
+			// Outdated slot; attempt to reset it.
+			if atomic.CompareAndSwapInt64(&slotPtr.timestamp, slotTimestamp, slotTime) {
+				// Successfully updated timestamp; reset count to 1
+				atomic.StoreUint64(&slotPtr.count, 1)
+				return
+			}
+			// CAS failed; another goroutine updated the slot, retry
+		} else {
+			// Slot timestamp is ahead (possible time skew); increment count to be safe
+			atomic.AddUint64(&slotPtr.count, 1)
+			return
 		}
 	}
-
-	ticker.stop()
-
-	close(c.count)
-	close(c.peek)
 }
 
-type ticker interface {
-	getC() <-chan time.Time
-	stop()
-}
+// Peek returns the total count across the sliding window.
+func (c *Counter) Peek() uint64 {
+	now := time.Now()
+	slotTime := now.UnixNano() / c.slotSize.Nanoseconds()
+	windowStart := slotTime - c.totalSlots + 1
 
-func newRing(d time.Duration) (*ring.Ring[int], time.Duration) {
-	millis := int(d.Milliseconds())
+	var total uint64 = 0
+	for i := int64(0); i < c.totalSlots; i++ {
+		idx := (slotTime - i) & c.mask
+		slotPtr := &c.slots[idx]
+		slotTimestamp := atomic.LoadInt64(&slotPtr.timestamp)
 
-	// ringsize is always a power of 2 and less than 64
-	r := ring.NewRing[int](int(math.Ceil(math.Log(float64(millis))/math.Log(2))) + 1)
-
-	len := r.Size() - 1
-
-	// time window value needs to be rounded to the nearest millisecond
-	// which is divisible by ringsize - 1
-	diff := (millis % len)
-	if diff <= len/2 {
-		millis = millis - diff
-	} else {
-		millis = millis + (len - diff)
+		if slotTimestamp >= windowStart {
+			count := atomic.LoadUint64(&slotPtr.count)
+			total += count
+		}
 	}
-
-	return r, time.Duration(millis) * time.Millisecond
+	return total
 }
 
-type clockTicker struct {
-	ticker *time.Ticker
-}
-
-func newClockTicker(d time.Duration) *clockTicker {
-	ticker := time.NewTicker(d)
-	return &clockTicker{
-		ticker,
-	}
-}
-
-func (t *clockTicker) getC() <-chan time.Time {
-	return t.ticker.C
-}
-
-func (t *clockTicker) stop() {
-	t.ticker.Stop()
-	t.ticker = nil
+// FrameDuration returns the duration of each slot (frame) in the sliding window.
+func (c *Counter) FrameDuration() time.Duration {
+	return c.slotSize
 }

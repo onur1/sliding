@@ -1,142 +1,65 @@
-package sliding
+package sliding_test
 
 import (
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/onur1/ring"
+	"github.com/onur1/sliding"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCounter(t *testing.T) {
-	c, r, ticker := newTestCounter(time.Millisecond * 80)
+	c := sliding.NewCounter(time.Millisecond * 77)
 
-	dur := c.Duration().Milliseconds()
-	framedur := ticker.dur
-
-	assert.Equal(t, 77, int(dur))
-	assert.Equal(t, 8, r.Size())
-	assert.Equal(t, 11, int(framedur))
-
-	go c.loop(r, ticker)
-
-	var now int64
-
-	assert.Equal(t, 0, c.Peek())
-
-	c.Inc()
-	c.Inc()
-
-	assert.Equal(t, 2, c.Peek())
-
-	for now < dur-(framedur*2) {
-		now = ticker.advance()
-		assert.Equal(t, 2, c.Peek())
+	for range 100 {
+		c.Increment()
 	}
 
-	assert.Equal(t, dur-(framedur*2), now)
-	assert.Equal(t, 2, c.Peek())
+	assert.EqualValues(t, 100, c.Peek())
 
-	c.Inc()
+	time.Sleep(time.Millisecond * 100)
+	assert.EqualValues(t, 0, c.Peek())
 
-	assert.Equal(t, 3, c.Peek())
+	c.Increment()
+	assert.EqualValues(t, 1, c.Peek())
 
-	now = ticker.advance()
+	time.Sleep(time.Millisecond * 40)
 
-	assert.Equal(t, dur-framedur, now)
-	assert.Equal(t, 3, c.Peek())
-
-	now = ticker.advance()
-
-	assert.Equal(t, 1, c.Peek())
-
-	c.Inc()
-
-	assert.Equal(t, 2, c.Peek())
-	assert.Equal(t, dur, now)
-
-	for now < dur+(dur-(framedur*3)) {
-		now = ticker.advance()
-
-		assert.Equal(t, 2, c.Peek())
+	for range 3 {
+		c.Increment()
 	}
 
-	assert.Equal(t, dur+(dur-(framedur*3)), now)
+	assert.EqualValues(t, 4, c.Peek())
 
-	now = ticker.advance()
+	time.Sleep(time.Millisecond * 40)
+	assert.EqualValues(t, 3, c.Peek())
 
-	assert.Equal(t, dur+(dur-(framedur*2)), now)
-	assert.Equal(t, 1, c.Peek())
+	for range 5 {
+		c.Increment()
+	}
 
-	ticker.advance()
+	time.Sleep(time.Millisecond * 40)
+	assert.EqualValues(t, 5, c.Peek())
 
-	assert.Equal(t, 1, c.Peek())
+	time.Sleep(time.Millisecond * 40)
+	assert.EqualValues(t, 0, c.Peek())
+}
 
-	now = ticker.advance()
-
-	assert.Equal(t, dur*2, now)
-	assert.Equal(t, 0, c.Peek())
+func TestCounterConcurrent(t *testing.T) {
+	c := sliding.NewCounter(time.Second * 1)
 
 	var wg sync.WaitGroup
-
-	wg.Add(1)
-
-	go func(t *fakeTicker) {
-		defer wg.Done()
-		<-t.stopch
-	}(ticker)
-
-	c.Stop()
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 100/4; i++ {
+				c.Increment()
+			}
+		}()
+	}
 
 	wg.Wait()
-}
-
-type fakeTicker struct {
-	mu     sync.Mutex
-	ch     chan time.Time
-	now    int64
-	dur    int64
-	stopch chan struct{}
-}
-
-func newFakeTicker(d time.Duration) *fakeTicker {
-	return &fakeTicker{
-		ch:     make(chan time.Time),
-		now:    0,
-		dur:    d.Milliseconds(),
-		stopch: make(chan struct{}),
-	}
-}
-
-func (t *fakeTicker) advance() int64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.now += t.dur
-	t.ch <- time.Time{}
-
-	return t.now
-}
-
-func (t *fakeTicker) getC() <-chan time.Time {
-	return t.ch
-}
-
-func (t *fakeTicker) stop() {
-	t.stopch <- struct{}{}
-}
-
-func newTestCounter(d time.Duration) (*Counter, *ring.Ring[int], *fakeTicker) {
-	r, dur := newRing(d)
-
-	c := &Counter{
-		count: make(chan struct{}),
-		exit:  make(chan struct{}, 1),
-		peek:  make(chan chan int),
-		dur:   dur,
-	}
-
-	framedur := time.Duration(dur.Milliseconds()/int64(r.Size()-1)) * time.Millisecond
-
-	return c, r, newFakeTicker(framedur)
+	assert.EqualValues(t, 100, c.Peek())
 }
