@@ -56,7 +56,7 @@ jobs:
           fi
           current=$(git tag | sort -r | grep "^v[0-9]*\.[0-9]*\.[0-9]" | sort -t "." -k1,1nr -k2,2nr -k3,3nr | cut -c2- | head -1 2> /dev/null) || true
           if [[ -z "$current" ]]; then
-            current='0.0.0'
+            current='0.1.0'
           fi
           parts=(${current//./ })
           MAJOR=${parts[0]}
