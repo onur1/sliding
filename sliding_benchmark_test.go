@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onur1/sliding"
-	slidingv1 "github.com/onur1/sliding/v1"
+	"github.com/tetsuo/sliding"
+	slidingv1 "github.com/tetsuo/sliding/v1"
 )
 
 func BenchmarkSlidingAtomic(b *testing.B) {

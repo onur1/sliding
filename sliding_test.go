@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onur1/sliding"
+	"github.com/tetsuo/sliding"
 	"github.com/stretchr/testify/assert"
 )
 

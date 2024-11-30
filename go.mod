@@ -1,10 +1,10 @@
-module github.com/onur1/sliding
+module github.com/tetsuo/sliding
 
 go 1.23
 
 require (
-	github.com/onur1/ring v0.0.3
 	github.com/stretchr/testify v1.10.0
+	github.com/tetsuo/ring v0.0.4
 )
 
 require (

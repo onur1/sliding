@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/onur1/ring"
+	"github.com/tetsuo/ring"
 )
 
 // A Counter is a channel-based sliding window based counter used
